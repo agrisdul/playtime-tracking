@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pinball Time - Screen</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Arial; margin: 0; background: #0b0b0f; color: #fff; }
+    header { padding: 18px 26px; display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid #2a2a35; }
+    .title { font-size: 28px; font-weight: 700; letter-spacing: .5px; }
+    .clock { opacity:.8; font-size: 18px; }
+    .wrap { padding: 18px 26px; }
+    .grid { display:grid; grid-template-columns: 1.2fr .8fr .6fr; gap: 14px; }
+    .card { border: 1px solid #2a2a35; border-radius: 14px; padding: 16px 18px; background: #13131a; }
+    .nick { font-size: 34px; font-weight: 800; }
+    .meta { opacity:.8; margin-top: 6px; font-size: 18px; }
+    .time { font-size: 44px; font-weight: 900; text-align:right; }
+    .state { font-size: 20px; font-weight: 700; text-align:right; opacity:.9; margin-top: 6px; }
+    .green { border-color: #1f6f3a; }
+    .yellow { border-color: #b08b1a; }
+    .red { border-color: #a12525; }
+    .dim { opacity: .55; }
+    .footer { opacity:.6; font-size: 14px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">PINBALL TIME</div>
+    <div class="clock" id="clock"></div>
+  </header>
+  <div class="wrap">
+    <div id="list" class="grid"></div>
+    <div class="footer">Green = active · Yellow = &lt;5 min · Red = expired</div>
+  </div>
+
+<script>
+let sessions = [];
+
+function pad(n){ return String(n).padStart(2,"0"); }
+function fmtRemaining(ms){
+  const total = Math.max(0, Math.floor(ms/1000));
+  const m = Math.floor(total/60);
+  const s = total % 60;
+  return `${pad(m)}:${pad(s)}`;
+}
+
+async function fetchState(){
+  const state = await fetch("/api/state", {cache:"no-store"}).then(r=>r.json());
+  sessions = state.sessions || [];
+}
+
+function render(){
+  const now = Date.now();
+  document.getElementById("clock").textContent =
+    new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+  // sort: active first, expired last, by remaining time
+  const sorted = sessions.slice().sort((a,b)=>{
+    const ra = a.end_ms - now;
+    const rb = b.end_ms - now;
+    const ea = ra <= 0, eb = rb <= 0;
+    if (ea !== eb) return ea ? 1 : -1;
+    return ra - rb;
+  });
+
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+
+  sorted.forEach(s=>{
+    const remaining = s.end_ms - now;
+    const expired = remaining <= 0;
+    const warn = remaining > 0 && remaining <= 5*60*1000;
+
+    const cls = expired ? "red dim" : (warn ? "yellow" : "green");
+    const status = expired ? "EXPIRED" : (warn ? "LAST 5 MIN" : "ACTIVE");
+
+    const card = document.createElement("div");
+    card.className = `card ${cls}`;
+    card.innerHTML = `
+      <div class="nick">${escapeHtml(s.nick)}${s.players>1 ? ` <span style="opacity:.7;font-size:22px;">(x${s.players})</span>` : ""}</div>
+      <div class="meta">${s.minutes} min</div>
+      <div class="time">${fmtRemaining(remaining)}</div>
+      <div class="state">${status}</div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+(async function loop(){
+  await fetchState();
+  render();
+  setInterval(async ()=>{
+    // refresh from server every 2s, render every 1s
+    await fetchState();
+  }, 2000);
+  setInterval(render, 1000);
+})();
+</script>
+</body>
+</html>
